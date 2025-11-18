@@ -19,8 +19,7 @@
 //!
 //! ## Usage
 //!
-//! // TODO: Remove this ignore once implementation is complete
-//! ```ignore
+//! ```no_run
 //! use sqlx_sqlite_conn_mgr::SqliteDatabase;
 //! use std::sync::Arc;
 //!
@@ -60,9 +59,6 @@
 //! - Global registry caches new database instances (with their pools) and returns existing ones
 //! - WAL mode is enabled lazily only when writes are needed
 //!
-// TODO: Remove this allow once implementation is complete
-#![allow(unused)]
-
 mod config;
 mod database;
 mod error;

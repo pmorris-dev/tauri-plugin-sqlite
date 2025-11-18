@@ -14,8 +14,8 @@ use std::ops::{Deref, DerefMut};
 /// The guard derefs to `SqliteConnection` allowing direct use with sqlx queries.
 ///
 /// # Example
-/// TODO: Remove ignore once implementation is complete
-/// ```ignore
+///
+/// ```no_run
 /// use sqlx_sqlite_conn_mgr::SqliteDatabase;
 /// use sqlx::query;
 ///
