@@ -20,7 +20,7 @@ use std::ops::{Deref, DerefMut};
 /// use sqlx::query;
 ///
 /// # async fn example() -> Result<(), sqlx_sqlite_conn_mgr::Error> {
-/// let db = SqliteDatabase::connect("test.db").await?;
+/// let db = SqliteDatabase::connect("test.db", None).await?;
 /// let mut writer = db.acquire_writer().await?;
 /// // Use &mut *writer for write queries (e.g. INSERT/UPDATE/DELETE)
 /// query("INSERT INTO users (name) VALUES (?)")

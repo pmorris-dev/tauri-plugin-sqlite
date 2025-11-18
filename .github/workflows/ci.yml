@@ -41,10 +41,20 @@ jobs:
            run: npm ci
 
          - name: Run standards checks
-           run: npm run standards
-           env:
-              # For PRs: lint from base branch. For pushes: lint from previous commit
-              COMMITLINT_FROM: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+           run: |
+             # Determine commitlint range
+             if [ "${{ github.event_name }}" = "pull_request" ]; then
+                export COMMITLINT_FROM="${{ github.event.pull_request.base.sha }}"
+             else
+                # For pushes, verify the before commit exists
+                if git cat-file -e "${{ github.event.before }}" 2>/dev/null; then
+                   export COMMITLINT_FROM="${{ github.event.before }}"
+                else
+                   # Fallback: check only HEAD commit on force push or first push
+                   export COMMITLINT_FROM="HEAD~1"
+                fi
+             fi
+             npm run standards
 
          - name: Run cargo check
            run: cargo check --workspace --all-targets
