@@ -47,13 +47,13 @@ impl Deref for WriteGuard {
    type Target = SqliteConnection;
 
    fn deref(&self) -> &Self::Target {
-      &*self.conn
+      &self.conn
    }
 }
 
 impl DerefMut for WriteGuard {
    fn deref_mut(&mut self) -> &mut Self::Target {
-      &mut *self.conn
+      &mut self.conn
    }
 }
 

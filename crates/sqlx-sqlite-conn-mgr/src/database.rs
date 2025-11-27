@@ -288,12 +288,12 @@ impl SqliteDatabase {
 
       // Checkpoint WAL before closing the write connection to flush changes and truncate WAL file
       // Only attempt if WAL was initialized (write connection was used)
-      if self.wal_initialized.load(Ordering::SeqCst) {
-         if let Ok(mut conn) = self.write_conn.acquire().await {
-            let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-               .execute(&mut *conn)
-               .await;
-         }
+      if self.wal_initialized.load(Ordering::SeqCst)
+         && let Ok(mut conn) = self.write_conn.acquire().await
+      {
+         let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&mut *conn)
+            .await;
       }
 
       self.write_conn.close().await;
@@ -334,17 +334,17 @@ impl SqliteDatabase {
       // Remove WAL and SHM files - ignore "not found" but propagate other errors
       // (these files may not exist if WAL was never initialized)
       let wal_path = path.with_extension("db-wal");
-      if let Err(e) = std::fs::remove_file(&wal_path) {
-         if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(Error::Io(e));
-         }
+      if let Err(e) = std::fs::remove_file(&wal_path)
+         && e.kind() != std::io::ErrorKind::NotFound
+      {
+         return Err(Error::Io(e));
       }
 
       let shm_path = path.with_extension("db-shm");
-      if let Err(e) = std::fs::remove_file(&shm_path) {
-         if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(Error::Io(e));
-         }
+      if let Err(e) = std::fs::remove_file(&shm_path)
+         && e.kind() != std::io::ErrorKind::NotFound
+      {
+         return Err(Error::Io(e));
       }
 
       Ok(())
@@ -692,7 +692,7 @@ mod tests {
                .await
                .unwrap();
 
-            assert!(rows.len() > 0);
+            assert!(!rows.is_empty());
          }));
       }
 
