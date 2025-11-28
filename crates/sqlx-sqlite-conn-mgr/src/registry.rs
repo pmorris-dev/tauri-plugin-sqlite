@@ -50,22 +50,22 @@ where
    {
       let registry = registry().read().await;
 
-      if let Some(weak) = registry.get(&canonical_path) {
-         if let Some(db) = weak.upgrade() {
-            return Ok(db);
-         }
-         // Weak reference exists but dead - will be cleaned up in write phase
+      if let Some(weak) = registry.get(&canonical_path)
+         && let Some(db) = weak.upgrade()
+      {
+         return Ok(db);
       }
+      // Weak reference exists but dead - will be cleaned up in write phase
    }
 
    // Phase 2: Database not found, acquire write lock
    let mut registry = registry().write().await;
 
    // Double-check: another thread might have created it while we waited for write lock
-   if let Some(weak) = registry.get(&canonical_path) {
-      if let Some(db) = weak.upgrade() {
-         return Ok(db);
-      }
+   if let Some(weak) = registry.get(&canonical_path)
+      && let Some(db) = weak.upgrade()
+   {
+      return Ok(db);
    }
 
    // Clean up dead weak references while we have the write lock

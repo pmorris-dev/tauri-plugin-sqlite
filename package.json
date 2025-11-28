@@ -1,15 +1,24 @@
 {
-   "name": "tauri-plugin-sqlite",
+   "name": "@silvermine/tauri-plugin-sqlite",
    "version": "0.1.0",
-   "description": "A Tauri plugin for SQLite database access with connection pool management",
-   "main": "dist-js/index.js",
-   "types": "dist-js/index.d.ts",
+   "description": "SQLite database interface for Tauri applications",
+   "type": "module",
+   "types": "./dist-js/index.d.ts",
+   "main": "./dist-js/index.cjs",
+   "module": "./dist-js/index.js",
+   "exports": {
+      "types": "./dist-js/index.d.ts",
+      "import": "./dist-js/index.js",
+      "require": "./dist-js/index.cjs"
+   },
    "files": [
       "dist-js",
-      "permissions"
+      "permissions",
+      "README.md",
+      "LICENSE"
    ],
    "scripts": {
-      "build": "tsc -p guest-js/tsconfig.json",
+      "build": "rollup -c",
       "check-node-version": "check-node-version --npm 10.5.0",
       "commitlint": "commitlint --from ${COMMITLINT_FROM:-002bcc8} --to ${COMMITLINT_TO:-HEAD}",
       "markdownlint": "markdownlint-cli2",
@@ -24,8 +33,13 @@
       "url": "https://github.com/silvermine/tauri-plugin-sqlite.git"
    },
    "devDependencies": {
+      "@rollup/plugin-node-resolve": "16.0.3",
+      "@rollup/plugin-terser": "0.4.4",
+      "@rollup/plugin-typescript": "12.3.0",
       "@silvermine/standardization": "2.2.3",
       "@tauri-apps/api": "2.9.0",
+      "rollup": "4.53.3",
+      "tslib": "2.8.1",
       "typescript": "5.8.3"
    },
    "peerDependencies": {
