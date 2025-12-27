@@ -349,12 +349,8 @@ pub async fn execute_interruptible_transaction(
       q.execute(&mut *writer).await?;
    }
 
-   // Create abort handle for transaction cleanup on app exit
-   let abort_handle = tokio::spawn(std::future::pending::<()>()).abort_handle();
-
    // Store transaction state
-   let tx =
-      ActiveInterruptibleTransaction::new(db.clone(), transaction_id.clone(), writer, abort_handle);
+   let tx = ActiveInterruptibleTransaction::new(db.clone(), transaction_id.clone(), writer);
 
    active_txs.insert(db.clone(), tx).await?;
 
