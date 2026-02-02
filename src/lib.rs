@@ -215,7 +215,7 @@ impl Builder {
                   let path = path.clone();
                   let migrator = Arc::clone(migrator);
 
-                  tokio::spawn(async move {
+                  tauri::async_runtime::spawn(async move {
                      run_migrations_for_database(app_handle, path, migrator).await;
                   });
                }
