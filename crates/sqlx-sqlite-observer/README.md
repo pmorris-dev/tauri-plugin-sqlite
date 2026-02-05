@@ -116,6 +116,65 @@ This ensures subscribers **only receive notifications for committed changes**.
    * **`ObservableSqliteDatabase`**: Wrapper for `SqliteDatabase` with observation
    * **`ObservableWriteGuard`**: Write guard with hooks registered
 
+### `TableInfo`
+
+Schema information for observed tables (used internally, also exported).
+
+   * `pk_columns: Vec<usize>` - Column indices forming the primary key
+   * `without_rowid: bool` - Whether the table uses WITHOUT ROWID
+
+## Primary Key Extraction
+
+The `primary_key` field on `TableChange` always contains the actual primary key
+value(s) for the affected row:
+
+```rust
+let change = rx.recv().await?;
+
+// Single-column PK (e.g., INTEGER PRIMARY KEY)
+if let Some(ColumnValue::Integer(id)) = change.primary_key.first() {
+    println!("Changed row id: {}", id);
+}
+
+// Composite PK - values are in declaration order
+for (i, pk_value) in change.primary_key.iter().enumerate() {
+    println!("PK column {}: {:?}", i, pk_value);
+}
+```
+
+**Why `primary_key` instead of just `rowid`?**
+
+SQLite's internal `rowid` works well for tables with `INTEGER PRIMARY KEY`, but
+has limitations:
+
+   * **Text or UUID primary keys**: The `rowid` is an internal integer, not your
+     actual key
+   * **Composite primary keys**: The `rowid` doesn't represent your multi-column
+     key
+   * **WITHOUT ROWID tables**: The `rowid` from the preupdate hook is unreliable
+
+The `primary_key` field extracts the actual primary key values from the captured
+column data, giving you meaningful identifiers regardless of table structure.
+
+### WITHOUT ROWID Tables
+
+For tables created with `WITHOUT ROWID`, the `rowid` field in `TableChange` will
+be `None`:
+
+```rust
+let change = rx.recv().await?;
+
+if change.rowid.is_none() {
+    // This is a WITHOUT ROWID table
+    // Use primary_key instead
+    println!("PK: {:?}", change.primary_key);
+}
+```
+
+This is because SQLite's preupdate hook provides the first PRIMARY KEY column
+(coerced to i64) as the "rowid" for WITHOUT ROWID tables, which may not be
+meaningful/correct for non-integer or composite primary keys.
+
 ## Examples
 
 > **Coming in Phase 2** - Full working examples will be added in a subsequent PR.

@@ -30,19 +30,18 @@
 //! ```
 //!
 //! Changes captured by the preupdate hook are buffered until the transaction
-//! completes. On commit, buffered changes are published to subscribers. On
-//! rollback (or implicit rollback due to an error), they are discarded without
-//! notification.
+//! (explicit or implicit) completes. On commit, buffered changes are published
+//! to subscribers. On rollback, they are discarded without notification.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 use parking_lot::{Mutex, RwLock};
 use tokio::sync::broadcast;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
-use crate::change::{ChangeOperation, TableChange};
+use crate::change::{ChangeOperation, ColumnValue, TableChange, TableInfo};
 use crate::hooks::{PreUpdateEvent, SqliteValue};
 
 /// Transaction-aware observation broker.
@@ -54,6 +53,7 @@ pub struct ObservationBroker {
    buffer: Mutex<Vec<PreUpdateEvent>>,
    change_tx: broadcast::Sender<TableChange>,
    observed_tables: RwLock<HashSet<String>>,
+   table_info: RwLock<HashMap<String, TableInfo>>,
    capture_values: bool,
 }
 
@@ -65,6 +65,7 @@ impl ObservationBroker {
          buffer: Mutex::new(Vec::new()),
          change_tx,
          observed_tables: RwLock::new(HashSet::new()),
+         table_info: RwLock::new(HashMap::new()),
          capture_values,
       })
    }
@@ -74,20 +75,25 @@ impl ObservationBroker {
       self.observed_tables.read().contains(table)
    }
 
-   /// Registers tables for observation.
+   /// Registers a table for observation with its schema information.
    ///
    /// Only changes to observed tables will be buffered and published.
-   pub fn observe_tables<I, S>(&self, tables: I)
-   where
-      I: IntoIterator<Item = S>,
-      S: AsRef<str>,
-   {
-      let mut observed = self.observed_tables.write();
-      for table in tables {
-         let table_name = table.as_ref().to_string();
-         trace!(table = %table_name, "Observing table");
-         observed.insert(table_name);
-      }
+   /// The `TableInfo` is required to correctly extract primary key values
+   /// and determine whether the rowid is meaningful for the table.
+   pub fn observe_table(&self, table: &str, info: TableInfo) {
+      trace!(
+         table = %table,
+         pk_columns = ?info.pk_columns,
+         without_rowid = info.without_rowid,
+         "Observing table with schema info"
+      );
+      self.observed_tables.write().insert(table.to_string());
+      self.table_info.write().insert(table.to_string(), info);
+   }
+
+   /// Gets the schema information for an observed table.
+   pub fn get_table_info(&self, table: &str) -> Option<TableInfo> {
+      self.table_info.read().get(table).cloned()
    }
 
    /// Returns a list of all observed tables.
@@ -125,8 +131,14 @@ impl ObservationBroker {
       debug!(count = events.len(), "Flushing buffered changes on commit");
 
       for event in events {
-         let table_change = self.event_to_change(event);
-         let _ = self.change_tx.send(table_change);
+         match self.event_to_change(event) {
+            Ok(table_change) => {
+               let _ = self.change_tx.send(table_change);
+            }
+            Err(e) => {
+               error!(error = %e, "Failed to convert event to change");
+            }
+         }
       }
    }
 
@@ -155,12 +167,21 @@ impl ObservationBroker {
    }
 
    /// Converts a PreUpdateEvent to a TableChange for broadcast.
-   fn event_to_change(&self, event: PreUpdateEvent) -> TableChange {
-      let rowid = match event.operation {
-         ChangeOperation::Insert => Some(event.new_rowid),
-         ChangeOperation::Delete => Some(event.old_rowid),
-         ChangeOperation::Update => Some(event.new_rowid),
+   fn event_to_change(&self, event: PreUpdateEvent) -> crate::Result<TableChange> {
+      let table_info = self.table_info.read().get(&event.table).cloned();
+
+      // For WITHOUT ROWID tables, the rowid from preupdate hook is not meaningful
+      let rowid = match &table_info {
+         Some(info) if info.without_rowid => None,
+         _ => match event.operation {
+            ChangeOperation::Insert => Some(event.new_rowid),
+            ChangeOperation::Delete => Some(event.old_rowid),
+            ChangeOperation::Update => Some(event.new_rowid),
+         },
       };
+
+      // Extract primary key values from the appropriate column values
+      let primary_key = self.extract_primary_key(&event, table_info.as_ref())?;
 
       let (old_values, new_values) = if self.capture_values {
          (
@@ -171,14 +192,59 @@ impl ObservationBroker {
          (None, None)
       };
 
-      TableChange {
+      Ok(TableChange {
          table: event.table,
          operation: Some(event.operation),
          rowid,
+         primary_key,
          old_values,
          new_values,
          timestamp: Instant::now(),
+      })
+   }
+
+   /// Extracts primary key values from the event based on table schema.
+   ///
+   /// Returns an error if the schema has drifted (e.g., table was altered)
+   /// and PK column indices are out of bounds.
+   fn extract_primary_key(
+      &self,
+      event: &PreUpdateEvent,
+      table_info: Option<&TableInfo>,
+   ) -> crate::Result<Vec<ColumnValue>> {
+      let Some(info) = table_info else {
+         return Ok(Vec::new());
+      };
+
+      if info.pk_columns.is_empty() {
+         return Ok(Vec::new());
       }
+
+      // For DELETE, use old values; for INSERT/UPDATE, use new values
+      let values = match event.operation {
+         ChangeOperation::Delete => event.old_values.as_ref(),
+         ChangeOperation::Insert | ChangeOperation::Update => event.new_values.as_ref(),
+      };
+
+      let Some(values) = values else {
+         return Ok(Vec::new());
+      };
+
+      // Extract values at the PK column indices, erroring if any index is out of bounds
+      let mut pk_values = Vec::with_capacity(info.pk_columns.len());
+      for &idx in &info.pk_columns {
+         match values.get(idx) {
+            Some(v) => pk_values.push(v.clone().into()),
+            None => {
+               return Err(crate::Error::SchemaMismatch {
+                  table: event.table.clone(),
+                  expected: info.pk_columns.len(),
+                  actual: values.len(),
+               });
+            }
+         }
+      }
+      Ok(pk_values)
    }
 
    /// Converts SqliteValue vec to ColumnValue vec for TableChange.

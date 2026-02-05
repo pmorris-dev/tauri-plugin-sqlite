@@ -27,9 +27,10 @@ pub mod broker;
 pub mod change;
 pub mod error;
 pub mod hooks;
+pub mod schema;
 
 pub use broker::ObservationBroker;
-pub use change::{ChangeOperation, ColumnValue, TableChange};
+pub use change::{ChangeOperation, ColumnValue, TableChange, TableInfo};
 pub use error::Error;
 pub use hooks::{SqliteValue, is_preupdate_hook_enabled, unregister_hooks};
 
