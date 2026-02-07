@@ -123,6 +123,9 @@ pub mod observer;
 pub mod schema;
 pub mod stream;
 
+#[cfg(feature = "conn-mgr")]
+pub mod conn_mgr;
+
 pub use broker::ObservationBroker;
 pub use change::{ChangeOperation, ColumnValue, TableChange, TableInfo};
 pub use config::ObserverConfig;
@@ -131,5 +134,8 @@ pub use error::Error;
 pub use hooks::{SqliteValue, is_preupdate_hook_enabled, unregister_hooks};
 pub use observer::SqliteObserver;
 pub use stream::{TableChangeStream, TableChangeStreamExt};
+
+#[cfg(feature = "conn-mgr")]
+pub use conn_mgr::{ObservableSqliteDatabase, ObservableWriteGuard};
 
 pub type Result<T> = std::result::Result<T, Error>;
