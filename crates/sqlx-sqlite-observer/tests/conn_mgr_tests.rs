@@ -331,6 +331,13 @@ async fn test_stream_receives_notifications() {
    let result = timeout(Duration::from_millis(100), stream.next()).await;
    assert!(result.is_ok(), "Stream receives notification");
 
-   let change = result.unwrap().unwrap();
-   assert_eq!(change.table, "users");
+   let event = result.unwrap().unwrap();
+   match event {
+      sqlx_sqlite_observer::TableChangeEvent::Change(change) => {
+         assert_eq!(change.table, "users");
+      }
+      sqlx_sqlite_observer::TableChangeEvent::Lagged(_) => {
+         panic!("Expected Change event, got Lagged");
+      }
+   }
 }
