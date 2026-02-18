@@ -5,7 +5,7 @@ members = [
    "crates/sqlx-sqlite-observer",
    "crates/sqlx-sqlite-toolkit",
 ]
-exclude = ["examples/observer-demo/src-tauri"]
+exclude = ["examples/observer-demo/src-tauri", "examples/pagination-demo/src-tauri"]
 
 [package]
 name = "tauri-plugin-sqlite"

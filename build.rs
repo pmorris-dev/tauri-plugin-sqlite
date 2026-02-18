@@ -8,6 +8,7 @@ fn main() {
       "transaction_read",
       "fetch_all",
       "fetch_one",
+      "fetch_page",
       "close",
       "close_all",
       "remove",

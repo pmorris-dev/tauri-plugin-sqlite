@@ -337,6 +337,50 @@ pub async fn fetch_one(
    Ok(result)
 }
 
+/// Execute a paginated SELECT query using keyset (cursor-based) pagination
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn fetch_page(
+   db_instances: State<'_, DbInstances>,
+   db: String,
+   query: String,
+   values: Vec<JsonValue>,
+   keyset: Vec<sqlx_sqlite_toolkit::KeysetColumn>,
+   page_size: usize,
+   after: Option<Vec<JsonValue>>,
+   before: Option<Vec<JsonValue>>,
+   attached: Option<Vec<AttachedDatabaseSpec>>,
+) -> Result<sqlx_sqlite_toolkit::KeysetPage> {
+   if after.is_some() && before.is_some() {
+      return Err(Error::Toolkit(
+         sqlx_sqlite_toolkit::Error::ConflictingCursors,
+      ));
+   }
+
+   let instances = db_instances.0.read().await;
+
+   let wrapper = instances
+      .get(&db)
+      .ok_or_else(|| Error::DatabaseNotLoaded(db.clone()))?;
+
+   let mut builder = wrapper.fetch_page(query, values, keyset, page_size);
+
+   if let Some(cursor_values) = after {
+      builder = builder.after(cursor_values);
+   } else if let Some(cursor_values) = before {
+      builder = builder.before(cursor_values);
+   }
+
+   if let Some(specs) = attached {
+      let resolved_specs = resolve_attached_specs(specs, &instances)?;
+      builder = builder.attach(resolved_specs);
+   }
+
+   let result = builder.execute().await?;
+
+   Ok(result)
+}
+
 /// Close a specific database connection
 ///
 /// Returns `true` if the database was loaded and successfully closed.

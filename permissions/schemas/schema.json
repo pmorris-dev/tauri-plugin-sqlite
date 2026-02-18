@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the fetch_one command without any pre-configured scope."
         },
         {
+          "description": "Enables the fetch_page command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-fetch-page",
+          "markdownDescription": "Enables the fetch_page command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the fetch_page command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-fetch-page",
+          "markdownDescription": "Denies the fetch_page command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_migration_events command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-migration-events",
@@ -499,10 +511,10 @@
           "markdownDescription": "Denies the unsubscribe command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the sqlite plugin - allows all database operations\n#### This default permission set includes:\n\n- `allow-load`\n- `allow-execute`\n- `allow-execute-transaction`\n- `allow-begin-interruptible-transaction`\n- `allow-transaction-continue`\n- `allow-transaction-read`\n- `allow-fetch-all`\n- `allow-fetch-one`\n- `allow-close`\n- `allow-close-all`\n- `allow-remove`\n- `allow-get-migration-events`\n- `allow-observe`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-unobserve`",
+          "description": "Default permissions for the sqlite plugin - allows all database operations\n#### This default permission set includes:\n\n- `allow-load`\n- `allow-execute`\n- `allow-execute-transaction`\n- `allow-begin-interruptible-transaction`\n- `allow-transaction-continue`\n- `allow-transaction-read`\n- `allow-fetch-all`\n- `allow-fetch-one`\n- `allow-fetch-page`\n- `allow-close`\n- `allow-close-all`\n- `allow-remove`\n- `allow-get-migration-events`\n- `allow-observe`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-unobserve`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the sqlite plugin - allows all database operations\n#### This default permission set includes:\n\n- `allow-load`\n- `allow-execute`\n- `allow-execute-transaction`\n- `allow-begin-interruptible-transaction`\n- `allow-transaction-continue`\n- `allow-transaction-read`\n- `allow-fetch-all`\n- `allow-fetch-one`\n- `allow-close`\n- `allow-close-all`\n- `allow-remove`\n- `allow-get-migration-events`\n- `allow-observe`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-unobserve`"
+          "markdownDescription": "Default permissions for the sqlite plugin - allows all database operations\n#### This default permission set includes:\n\n- `allow-load`\n- `allow-execute`\n- `allow-execute-transaction`\n- `allow-begin-interruptible-transaction`\n- `allow-transaction-continue`\n- `allow-transaction-read`\n- `allow-fetch-all`\n- `allow-fetch-one`\n- `allow-fetch-page`\n- `allow-close`\n- `allow-close-all`\n- `allow-remove`\n- `allow-get-migration-events`\n- `allow-observe`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-unobserve`"
         }
       ]
     }

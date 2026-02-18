@@ -12,6 +12,7 @@ Default permissions for the sqlite plugin - allows all database operations
 - `allow-transaction-read`
 - `allow-fetch-all`
 - `allow-fetch-one`
+- `allow-fetch-page`
 - `allow-close`
 - `allow-close-all`
 - `allow-remove`
@@ -208,6 +209,32 @@ Enables the fetch_one command without any pre-configured scope.
 <td>
 
 Denies the fetch_one command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sqlite:allow-fetch-page`
+
+</td>
+<td>
+
+Enables the fetch_page command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sqlite:deny-fetch-page`
+
+</td>
+<td>
+
+Denies the fetch_page command without any pre-configured scope.
 
 </td>
 </tr>

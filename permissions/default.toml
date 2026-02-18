@@ -15,6 +15,7 @@ permissions = [
    "allow-transaction-read",
    "allow-fetch-all",
    "allow-fetch-one",
+   "allow-fetch-page",
    "allow-close",
    "allow-close-all",
    "allow-remove",

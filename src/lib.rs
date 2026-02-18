@@ -184,6 +184,7 @@ impl Builder {
             commands::transaction_read,
             commands::fetch_all,
             commands::fetch_one,
+            commands::fetch_page,
             commands::close,
             commands::close_all,
             commands::remove,
