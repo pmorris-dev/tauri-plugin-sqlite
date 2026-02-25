@@ -156,7 +156,7 @@ pub struct MigrationEvent {
 ///     .expect("error while running tauri application");
 /// # }
 /// ```
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Builder {
    /// Migrations registered per database path
    migrations: HashMap<String, Arc<Migrator>>,
@@ -206,18 +206,32 @@ impl Builder {
    ///
    /// If an interruptible transaction exceeds this duration, it will be automatically
    /// rolled back on the next access attempt. Defaults to 5 minutes.
-   pub fn transaction_timeout(mut self, timeout: std::time::Duration) -> Self {
+   ///
+   /// Returns `Err(Error::InvalidConfig)` if `timeout` is zero.
+   pub fn transaction_timeout(mut self, timeout: std::time::Duration) -> Result<Self> {
+      if timeout.is_zero() {
+         return Err(Error::InvalidConfig(
+            "transaction_timeout must be greater than zero".to_string(),
+         ));
+      }
       self.transaction_timeout = Some(timeout);
-      self
+      Ok(self)
    }
 
    /// Set the maximum number of databases that can be loaded simultaneously.
    ///
    /// Prevents unbounded memory growth from connection pool proliferation.
    /// Defaults to 50.
-   pub fn max_databases(mut self, max: usize) -> Self {
+   ///
+   /// Returns `Err(Error::InvalidConfig)` if `max` is zero.
+   pub fn max_databases(mut self, max: usize) -> Result<Self> {
+      if max == 0 {
+         return Err(Error::InvalidConfig(
+            "max_databases must be greater than zero".to_string(),
+         ));
+      }
       self.max_databases = Some(max);
-      self
+      Ok(self)
    }
 
    /// Build the plugin with command registration and state management.
@@ -540,4 +554,40 @@ fn resolve_migration_path<R: Runtime>(
    app: &tauri::AppHandle<R>,
 ) -> Result<std::path::PathBuf> {
    crate::resolve::resolve_database_path(path, app)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn test_max_databases_rejects_zero() {
+      let err = Builder::new().max_databases(0).unwrap_err();
+      assert!(matches!(err, Error::InvalidConfig(_)));
+   }
+
+   #[test]
+   fn test_max_databases_accepts_positive() {
+      let builder = Builder::new().max_databases(1).unwrap();
+      assert_eq!(builder.max_databases, Some(1));
+   }
+
+   #[test]
+   fn test_transaction_timeout_rejects_zero() {
+      let err = Builder::new()
+         .transaction_timeout(std::time::Duration::ZERO)
+         .unwrap_err();
+      assert!(matches!(err, Error::InvalidConfig(_)));
+   }
+
+   #[test]
+   fn test_transaction_timeout_accepts_positive() {
+      let builder = Builder::new()
+         .transaction_timeout(std::time::Duration::from_secs(1))
+         .unwrap();
+      assert_eq!(
+         builder.transaction_timeout,
+         Some(std::time::Duration::from_secs(1))
+      );
+   }
 }
