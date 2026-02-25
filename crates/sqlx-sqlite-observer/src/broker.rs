@@ -59,7 +59,16 @@ pub struct ObservationBroker {
 
 impl ObservationBroker {
    /// Creates a new broker with the specified broadcast channel capacity.
+   ///
+   /// # Panics
+   ///
+   /// Panics if `channel_capacity` is 0.
    pub fn new(channel_capacity: usize, capture_values: bool) -> Arc<Self> {
+      // broadcast::channel panics on zero capacity. Assert here to surface a clear
+      // message rather than an internal tokio panic. Changing the return type to
+      // Result would ripple through every call site for a case that the plugin layer
+      // already validates before reaching this point.
+      assert!(channel_capacity > 0, "channel_capacity must be at least 1");
       let (change_tx, _) = broadcast::channel(channel_capacity);
       Arc::new(Self {
          buffer: Mutex::new(Vec::new()),

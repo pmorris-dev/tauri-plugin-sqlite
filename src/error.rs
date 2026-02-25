@@ -39,6 +39,10 @@ pub enum Error {
    #[error("observation not enabled for database: {0}")]
    ObservationNotEnabled(String),
 
+   /// Invalid configuration parameter.
+   #[error("invalid configuration: {0}")]
+   InvalidConfig(String),
+
    /// Generic error for operations that don't fit other categories.
    #[error("{0}")]
    Other(String),
@@ -74,6 +78,7 @@ impl Error {
          Error::PathTraversal(_) => "PATH_TRAVERSAL".to_string(),
          Error::DatabaseNotLoaded(_) => "DATABASE_NOT_LOADED".to_string(),
          Error::ObservationNotEnabled(_) => "OBSERVATION_NOT_ENABLED".to_string(),
+         Error::InvalidConfig(_) => "INVALID_CONFIG".to_string(),
          Error::Other(_) => "ERROR".to_string(),
       }
    }

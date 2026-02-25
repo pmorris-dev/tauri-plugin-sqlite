@@ -647,10 +647,17 @@ pub async fn observe(
       .get_mut(&db)
       .ok_or_else(|| Error::DatabaseNotLoaded(db.clone()))?;
 
+   const MAX_CHANNEL_CAPACITY: usize = 10_000;
+
    let mut observer_config = sqlx_sqlite_observer::ObserverConfig::new().with_tables(tables);
 
    if let Some(params) = config {
       if let Some(capacity) = params.channel_capacity {
+         if capacity == 0 || capacity > MAX_CHANNEL_CAPACITY {
+            return Err(Error::InvalidConfig(format!(
+               "channel_capacity must be between 1 and {MAX_CHANNEL_CAPACITY}, got {capacity}"
+            )));
+         }
          observer_config = observer_config.with_channel_capacity(capacity);
       }
       if let Some(capture) = params.capture_values {

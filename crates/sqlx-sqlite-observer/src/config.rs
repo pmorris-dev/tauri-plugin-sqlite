@@ -90,6 +90,9 @@ impl ObserverConfig {
 
    /// Sets the broadcast channel capacity for change notifications.
    ///
+   /// Capacity must be at least 1. A capacity of 0 will cause a panic when the
+   /// observer is initialized.
+   ///
    /// See [`channel_capacity`](Self::channel_capacity) for details on sizing.
    pub fn with_channel_capacity(mut self, capacity: usize) -> Self {
       self.channel_capacity = capacity;
