@@ -644,6 +644,16 @@ pub async fn observe(
    tables: Vec<String>,
    config: Option<ObserverConfigParams>,
 ) -> Result<()> {
+   const MAX_OBSERVED_TABLES: usize = 100;
+   const MAX_CHANNEL_CAPACITY: usize = 10_000;
+
+   if tables.is_empty() || tables.len() > MAX_OBSERVED_TABLES {
+      return Err(Error::InvalidConfig(format!(
+         "tables count must be between 1 and {MAX_OBSERVED_TABLES}, got {}",
+         tables.len()
+      )));
+   }
+
    // Abort plugin-level subscription tasks before the crate-level
    // enable_observation() drops the old broker
    active_subs.remove_for_db(&db).await;
@@ -653,8 +663,6 @@ pub async fn observe(
    let wrapper = instances
       .get_mut(&db)
       .ok_or_else(|| Error::DatabaseNotLoaded(db.clone()))?;
-
-   const MAX_CHANNEL_CAPACITY: usize = 10_000;
 
    let mut observer_config = sqlx_sqlite_observer::ObserverConfig::new().with_tables(tables);
 
@@ -690,6 +698,13 @@ pub async fn subscribe(
    tables: Vec<String>,
    on_event: Channel<TableChangePayload>,
 ) -> Result<String> {
+   const MAX_SUBSCRIPTIONS_PER_DATABASE: usize = 100;
+
+   let sub_count = active_subs.count_for_db(&db).await;
+   if sub_count >= MAX_SUBSCRIPTIONS_PER_DATABASE {
+      return Err(Error::TooManySubscriptions(MAX_SUBSCRIPTIONS_PER_DATABASE));
+   }
+
    let instances = db_instances.inner.read().await;
 
    let wrapper = instances

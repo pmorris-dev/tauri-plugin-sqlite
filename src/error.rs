@@ -43,6 +43,10 @@ pub enum Error {
    #[error("cannot load more than {0} databases")]
    TooManyDatabases(usize),
 
+   /// Too many subscriptions for a single database.
+   #[error("cannot create more than {0} subscriptions per database")]
+   TooManySubscriptions(usize),
+
    /// Invalid configuration parameter.
    #[error("invalid configuration: {0}")]
    InvalidConfig(String),
@@ -83,6 +87,7 @@ impl Error {
          Error::DatabaseNotLoaded(_) => "DATABASE_NOT_LOADED".to_string(),
          Error::ObservationNotEnabled(_) => "OBSERVATION_NOT_ENABLED".to_string(),
          Error::TooManyDatabases(_) => "TOO_MANY_DATABASES".to_string(),
+         Error::TooManySubscriptions(_) => "TOO_MANY_SUBSCRIPTIONS".to_string(),
          Error::InvalidConfig(_) => "INVALID_CONFIG".to_string(),
          Error::Other(_) => "ERROR".to_string(),
       }
