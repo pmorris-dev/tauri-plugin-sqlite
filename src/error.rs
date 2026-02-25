@@ -27,6 +27,10 @@ pub enum Error {
    #[error("invalid database path: {0}")]
    InvalidPath(String),
 
+   /// Path traversal attempt detected.
+   #[error("path traversal not allowed: {0}")]
+   PathTraversal(String),
+
    /// Attempted to access a database that hasn't been loaded.
    #[error("database {0} not loaded")]
    DatabaseNotLoaded(String),
@@ -34,6 +38,18 @@ pub enum Error {
    /// Observation not enabled for this database.
    #[error("observation not enabled for database: {0}")]
    ObservationNotEnabled(String),
+
+   /// Too many databases loaded simultaneously.
+   #[error("cannot load more than {0} databases")]
+   TooManyDatabases(usize),
+
+   /// Too many subscriptions for a single database.
+   #[error("cannot create more than {0} subscriptions per database")]
+   TooManySubscriptions(usize),
+
+   /// Invalid configuration parameter.
+   #[error("invalid configuration: {0}")]
+   InvalidConfig(String),
 
    /// Generic error for operations that don't fit other categories.
    #[error("{0}")]
@@ -67,8 +83,12 @@ impl Error {
          Error::Toolkit(e) => e.error_code(),
          Error::Migration(_) => "MIGRATION_ERROR".to_string(),
          Error::InvalidPath(_) => "INVALID_PATH".to_string(),
+         Error::PathTraversal(_) => "PATH_TRAVERSAL".to_string(),
          Error::DatabaseNotLoaded(_) => "DATABASE_NOT_LOADED".to_string(),
          Error::ObservationNotEnabled(_) => "OBSERVATION_NOT_ENABLED".to_string(),
+         Error::TooManyDatabases(_) => "TOO_MANY_DATABASES".to_string(),
+         Error::TooManySubscriptions(_) => "TOO_MANY_SUBSCRIPTIONS".to_string(),
+         Error::InvalidConfig(_) => "INVALID_CONFIG".to_string(),
          Error::Other(_) => "ERROR".to_string(),
       }
    }

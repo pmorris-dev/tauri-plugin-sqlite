@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -10,7 +11,7 @@ use sqlx::{Column, Row};
 use sqlx_sqlite_conn_mgr::{AttachedWriteGuard, WriteGuard};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::AbortHandle;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[cfg(feature = "observer")]
 use sqlx_sqlite_observer::ObservableWriteGuard;
@@ -97,6 +98,7 @@ pub struct ActiveInterruptibleTransaction {
    db_path: String,
    transaction_id: String,
    writer: Option<TransactionWriter>,
+   created_at: Instant,
 }
 
 impl ActiveInterruptibleTransaction {
@@ -105,6 +107,7 @@ impl ActiveInterruptibleTransaction {
          db_path,
          transaction_id,
          writer: Some(writer),
+         created_at: Instant::now(),
       }
    }
 
@@ -241,34 +244,71 @@ impl Drop for ActiveInterruptibleTransaction {
    }
 }
 
+/// Default transaction timeout (5 minutes).
+const DEFAULT_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Global state tracking all active interruptible transactions.
 ///
-/// Enforces one interruptible transaction per database path.
+/// Enforces one interruptible transaction per database path and applies a configurable
+/// timeout. Expired transactions are cleaned up lazily on the next `insert()` or
+/// `remove()` call — no background task is needed.
+///
 /// Uses `Mutex` rather than `RwLock` because all operations require write access,
 /// and `Mutex<T>` only requires `T: Send` (not `T: Sync`) — avoiding an
 /// `unsafe impl Sync` that would otherwise be needed due to non-`Sync` inner
 /// types (`PoolConnection`, raw pointers in observer guards).
-#[derive(Clone, Default)]
-pub struct ActiveInterruptibleTransactions(
-   Arc<Mutex<HashMap<String, ActiveInterruptibleTransaction>>>,
-);
+#[derive(Clone)]
+pub struct ActiveInterruptibleTransactions {
+   inner: Arc<Mutex<HashMap<String, ActiveInterruptibleTransaction>>>,
+   timeout: Duration,
+}
+
+impl Default for ActiveInterruptibleTransactions {
+   fn default() -> Self {
+      Self::new(DEFAULT_TRANSACTION_TIMEOUT)
+   }
+}
 
 impl ActiveInterruptibleTransactions {
+   /// Create a new instance with the given transaction timeout.
+   pub fn new(timeout: Duration) -> Self {
+      Self {
+         inner: Arc::new(Mutex::new(HashMap::new())),
+         timeout,
+      }
+   }
+
    pub async fn insert(&self, db_path: String, tx: ActiveInterruptibleTransaction) -> Result<()> {
       use std::collections::hash_map::Entry;
-      let mut txs = self.0.lock().await;
+      let mut txs = self.inner.lock().await;
 
       match txs.entry(db_path.clone()) {
          Entry::Vacant(e) => {
             e.insert(tx);
             Ok(())
          }
-         Entry::Occupied(_) => Err(Error::TransactionAlreadyActive(db_path)),
+         Entry::Occupied(mut e) => {
+            // If the existing transaction has expired, drop it (auto-rollback) and
+            // replace with the new one.
+            if e.get().created_at.elapsed() >= self.timeout {
+               warn!(
+                  "Evicting expired transaction for db: {} (age: {:?}, timeout: {:?})",
+                  db_path,
+                  e.get().created_at.elapsed(),
+                  self.timeout,
+               );
+               // Drop the expired transaction (auto-rollback) before inserting the new one
+               let _expired = e.insert(tx);
+               Ok(())
+            } else {
+               Err(Error::TransactionAlreadyActive(db_path))
+            }
+         }
       }
    }
 
    pub async fn abort_all(&self) {
-      let mut txs = self.0.lock().await;
+      let mut txs = self.inner.lock().await;
       debug!("Aborting {} active interruptible transaction(s)", txs.len());
 
       for db_path in txs.keys() {
@@ -283,13 +323,17 @@ impl ActiveInterruptibleTransactions {
       txs.clear();
    }
 
-   /// Remove and return transaction for commit/rollback
+   /// Remove and return transaction for commit/rollback.
+   ///
+   /// Returns `Err(Error::TransactionTimedOut)` if the transaction has exceeded the
+   /// configured timeout. The expired transaction is dropped (auto-rolled-back) in
+   /// that case.
    pub async fn remove(
       &self,
       db_path: &str,
       token_id: &str,
    ) -> Result<ActiveInterruptibleTransaction> {
-      let mut txs = self.0.lock().await;
+      let mut txs = self.inner.lock().await;
 
       // Validate token before removal
       let tx = txs
@@ -298,6 +342,19 @@ impl ActiveInterruptibleTransactions {
 
       if tx.transaction_id() != token_id {
          return Err(Error::InvalidTransactionToken);
+      }
+
+      // Check if the transaction has expired
+      if tx.created_at.elapsed() >= self.timeout {
+         warn!(
+            "Transaction timed out for db: {} (age: {:?}, timeout: {:?})",
+            db_path,
+            tx.created_at.elapsed(),
+            self.timeout,
+         );
+         // Drop the expired transaction (auto-rollback via Drop)
+         txs.remove(db_path);
+         return Err(Error::TransactionTimedOut(db_path.to_string()));
       }
 
       // Safe unwrap: we just confirmed the key exists above

@@ -22,12 +22,38 @@ pub use sqlx_sqlite_toolkit::{
    TransactionExecutionBuilder, WriteQueryResult,
 };
 
+/// Default maximum number of concurrently loaded databases.
+const DEFAULT_MAX_DATABASES: usize = 50;
+
 /// Database instances managed by the plugin.
 ///
 /// This struct maintains a thread-safe map of database paths to their corresponding
-/// connection wrappers.
-#[derive(Clone, Default)]
-pub struct DbInstances(pub Arc<RwLock<HashMap<String, DatabaseWrapper>>>);
+/// connection wrappers, with a configurable upper limit on how many databases can be
+/// loaded simultaneously.
+#[derive(Clone)]
+pub struct DbInstances {
+   pub(crate) inner: Arc<RwLock<HashMap<String, DatabaseWrapper>>>,
+   pub(crate) max: usize,
+}
+
+impl Default for DbInstances {
+   fn default() -> Self {
+      Self {
+         inner: Arc::new(RwLock::new(HashMap::new())),
+         max: DEFAULT_MAX_DATABASES,
+      }
+   }
+}
+
+impl DbInstances {
+   /// Create a new instance with the given maximum database count.
+   pub fn new(max: usize) -> Self {
+      Self {
+         inner: Arc::new(RwLock::new(HashMap::new())),
+         max,
+      }
+   }
+}
 
 /// Migration status for a database.
 #[derive(Debug, Clone)]
@@ -130,10 +156,14 @@ pub struct MigrationEvent {
 ///     .expect("error while running tauri application");
 /// # }
 /// ```
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Builder {
    /// Migrations registered per database path
    migrations: HashMap<String, Arc<Migrator>>,
+   /// Timeout for interruptible transactions. Defaults to 5 minutes.
+   transaction_timeout: Option<std::time::Duration>,
+   /// Maximum number of concurrently loaded databases. Defaults to 50.
+   max_databases: Option<usize>,
 }
 
 impl Builder {
@@ -141,6 +171,8 @@ impl Builder {
    pub fn new() -> Self {
       Self {
          migrations: HashMap::new(),
+         transaction_timeout: None,
+         max_databases: None,
       }
    }
 
@@ -170,9 +202,43 @@ impl Builder {
       self
    }
 
+   /// Set the timeout for interruptible transactions.
+   ///
+   /// If an interruptible transaction exceeds this duration, it will be automatically
+   /// rolled back on the next access attempt. Defaults to 5 minutes.
+   ///
+   /// Returns `Err(Error::InvalidConfig)` if `timeout` is zero.
+   pub fn transaction_timeout(mut self, timeout: std::time::Duration) -> Result<Self> {
+      if timeout.is_zero() {
+         return Err(Error::InvalidConfig(
+            "transaction_timeout must be greater than zero".to_string(),
+         ));
+      }
+      self.transaction_timeout = Some(timeout);
+      Ok(self)
+   }
+
+   /// Set the maximum number of databases that can be loaded simultaneously.
+   ///
+   /// Prevents unbounded memory growth from connection pool proliferation.
+   /// Defaults to 50.
+   ///
+   /// Returns `Err(Error::InvalidConfig)` if `max` is zero.
+   pub fn max_databases(mut self, max: usize) -> Result<Self> {
+      if max == 0 {
+         return Err(Error::InvalidConfig(
+            "max_databases must be greater than zero".to_string(),
+         ));
+      }
+      self.max_databases = Some(max);
+      Ok(self)
+   }
+
    /// Build the plugin with command registration and state management.
    pub fn build<R: Runtime>(self) -> tauri::plugin::TauriPlugin<R> {
       let migrations = Arc::new(self.migrations);
+      let transaction_timeout = self.transaction_timeout;
+      let max_databases = self.max_databases;
 
       PluginBuilder::<R>::new("sqlite")
          .invoke_handler(tauri::generate_handler![
@@ -195,9 +261,15 @@ impl Builder {
             commands::unobserve,
          ])
          .setup(move |app, _api| {
-            app.manage(DbInstances::default());
+            app.manage(match max_databases {
+               Some(max) => DbInstances::new(max),
+               None => DbInstances::default(),
+            });
             app.manage(MigrationStates::default());
-            app.manage(ActiveInterruptibleTransactions::default());
+            app.manage(match transaction_timeout {
+               Some(timeout) => ActiveInterruptibleTransactions::new(timeout),
+               None => ActiveInterruptibleTransactions::default(),
+            });
             app.manage(ActiveRegularTransactions::default());
             app.manage(subscriptions::ActiveSubscriptions::default());
 
@@ -270,7 +342,7 @@ impl Builder {
 
                         // Close databases (each wrapper's close() disables its own
                         // observer at the crate level, unregistering SQLite hooks)
-                        let mut guard = instances_clone.0.write().await;
+                        let mut guard = instances_clone.inner.write().await;
                         let wrappers: Vec<DatabaseWrapper> =
                            guard.drain().map(|(_, v)| v).collect();
 
@@ -313,7 +385,7 @@ impl Builder {
                   // ExitRequested should have already closed all databases
                   // This is just a safety check
                   let instances = app.state::<DbInstances>();
-                  match instances.0.try_read() {
+                  match instances.inner.try_read() {
                      Ok(guard) => {
                         if !guard.is_empty() {
                            warn!(
@@ -473,17 +545,49 @@ fn emit_migration_event<R: Runtime>(
    }
 }
 
-/// Resolve database path for migrations (similar to wrapper but accessible at init).
+/// Resolve database path for migrations.
+///
+/// Delegates to `resolve::resolve_database_path` to ensure consistent path validation
+/// across all entry points.
 fn resolve_migration_path<R: Runtime>(
    path: &str,
    app: &tauri::AppHandle<R>,
 ) -> Result<std::path::PathBuf> {
-   let app_path = app
-      .path()
-      .app_config_dir()
-      .map_err(|_| Error::InvalidPath("No app config path found".to_string()))?;
+   crate::resolve::resolve_database_path(path, app)
+}
 
-   std::fs::create_dir_all(&app_path)?;
+#[cfg(test)]
+mod tests {
+   use super::*;
 
-   Ok(app_path.join(path))
+   #[test]
+   fn test_max_databases_rejects_zero() {
+      let err = Builder::new().max_databases(0).unwrap_err();
+      assert!(matches!(err, Error::InvalidConfig(_)));
+   }
+
+   #[test]
+   fn test_max_databases_accepts_positive() {
+      let builder = Builder::new().max_databases(1).unwrap();
+      assert_eq!(builder.max_databases, Some(1));
+   }
+
+   #[test]
+   fn test_transaction_timeout_rejects_zero() {
+      let err = Builder::new()
+         .transaction_timeout(std::time::Duration::ZERO)
+         .unwrap_err();
+      assert!(matches!(err, Error::InvalidConfig(_)));
+   }
+
+   #[test]
+   fn test_transaction_timeout_accepts_positive() {
+      let builder = Builder::new()
+         .transaction_timeout(std::time::Duration::from_secs(1))
+         .unwrap();
+      assert_eq!(
+         builder.transaction_timeout,
+         Some(std::time::Duration::from_secs(1))
+      );
+   }
 }

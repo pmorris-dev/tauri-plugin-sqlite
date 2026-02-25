@@ -112,7 +112,7 @@ pub async fn load<R: Runtime>(
    // Wait for migrations to complete if registered for this database
    await_migrations(&migration_states, &db).await?;
 
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    // Return cached if db was already loaded
    if instances.contains_key(&db) {
@@ -121,7 +121,14 @@ pub async fn load<R: Runtime>(
 
    drop(instances); // Release read lock before acquiring write lock
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
+
+   // Check database count limit before creating a new connection.
+   // This check is before entry() to avoid borrow conflicts, and the write lock
+   // prevents races between the len() check and the insert.
+   if !instances.contains_key(&db) && instances.len() >= db_instances.max {
+      return Err(Error::TooManyDatabases(db_instances.max));
+   }
 
    // Use entry API to atomically check and insert, avoiding race conditions
    // where two callers could both create wrappers
@@ -187,7 +194,7 @@ pub async fn execute(
    values: Vec<JsonValue>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<(u64, i64)> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -214,7 +221,7 @@ pub async fn execute_transaction(
    statements: Vec<Statement>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<Vec<WriteQueryResult>> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -283,7 +290,10 @@ pub async fn execute_transaction(
    }
 }
 
-/// Execute a SELECT query returning all matching rows
+/// Execute a SELECT query returning all matching rows.
+///
+/// Returns the entire result set in a single response. For large or unbounded queries,
+/// prefer `fetch_page` with keyset pagination to keep memory usage bounded.
 #[tauri::command]
 pub async fn fetch_all(
    db_instances: State<'_, DbInstances>,
@@ -292,7 +302,7 @@ pub async fn fetch_all(
    values: Vec<JsonValue>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<Vec<IndexMap<String, JsonValue>>> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -319,7 +329,7 @@ pub async fn fetch_one(
    values: Vec<JsonValue>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<Option<IndexMap<String, JsonValue>>> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -357,7 +367,7 @@ pub async fn fetch_page(
       ));
    }
 
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -394,7 +404,7 @@ pub async fn close(
 ) -> Result<bool> {
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    if let Some(wrapper) = instances.remove(&db) {
       wrapper.close().await?;
@@ -415,7 +425,7 @@ pub async fn close_all(
 ) -> Result<()> {
    active_subs.abort_all().await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    // Collect all wrappers to close
    let wrappers: Vec<DatabaseWrapper> = instances.drain().map(|(_, v)| v).collect();
@@ -447,7 +457,7 @@ pub async fn remove(
 ) -> Result<bool> {
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    if let Some(wrapper) = instances.remove(&db) {
       wrapper.remove().await?;
@@ -489,7 +499,7 @@ pub async fn begin_interruptible_transaction(
    initial_statements: Vec<Statement>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<TransactionToken> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -637,11 +647,21 @@ pub async fn observe(
    tables: Vec<String>,
    config: Option<ObserverConfigParams>,
 ) -> Result<()> {
+   const MAX_OBSERVED_TABLES: usize = 100;
+   const MAX_CHANNEL_CAPACITY: usize = 10_000;
+
+   if tables.is_empty() || tables.len() > MAX_OBSERVED_TABLES {
+      return Err(Error::InvalidConfig(format!(
+         "tables count must be between 1 and {MAX_OBSERVED_TABLES}, got {}",
+         tables.len()
+      )));
+   }
+
    // Abort plugin-level subscription tasks before the crate-level
    // enable_observation() drops the old broker
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    let wrapper = instances
       .get_mut(&db)
@@ -651,6 +671,11 @@ pub async fn observe(
 
    if let Some(params) = config {
       if let Some(capacity) = params.channel_capacity {
+         if capacity == 0 || capacity > MAX_CHANNEL_CAPACITY {
+            return Err(Error::InvalidConfig(format!(
+               "channel_capacity must be between 1 and {MAX_CHANNEL_CAPACITY}, got {capacity}"
+            )));
+         }
          observer_config = observer_config.with_channel_capacity(capacity);
       }
       if let Some(capture) = params.capture_values {
@@ -676,7 +701,14 @@ pub async fn subscribe(
    tables: Vec<String>,
    on_event: Channel<TableChangePayload>,
 ) -> Result<String> {
-   let instances = db_instances.0.read().await;
+   const MAX_SUBSCRIPTIONS_PER_DATABASE: usize = 100;
+
+   let sub_count = active_subs.count_for_db(&db).await;
+   if sub_count >= MAX_SUBSCRIPTIONS_PER_DATABASE {
+      return Err(Error::TooManySubscriptions(MAX_SUBSCRIPTIONS_PER_DATABASE));
+   }
+
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -740,7 +772,7 @@ pub async fn unobserve(
    // Abort all subscriptions for this database first
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    let wrapper = instances
       .get_mut(&db)

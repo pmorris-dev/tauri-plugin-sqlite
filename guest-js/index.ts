@@ -757,6 +757,12 @@ class TransactionBuilder implements PromiseLike<WriteQueryResult[]> {
  *
  * The `Database` class serves as the primary interface for
  * communicating with SQLite databases through the plugin.
+ *
+ * @remarks
+ * Database instances are shared across all webviews/windows within the same Tauri
+ * application. A database loaded in one window is accessible from any other window
+ * without calling `load()` again. This means writes from one window are immediately
+ * visible to reads in another, and closing a database affects all windows.
  */
 export default class Database {
    public path: string;
@@ -929,6 +935,11 @@ export default class Database {
     * Returns a builder that can optionally attach databases before executing.
     *
     * SQLite uses `$1`, `$2`, etc. for parameter binding.
+    *
+    * @remarks
+    * This method returns the entire result set in a single response. For large or
+    * unbounded queries, prefer {@link fetchPage} with keyset pagination to keep memory
+    * usage bounded on both the Rust and TypeScript sides.
     *
     * @param query - SQL SELECT query
     * @param bindValues - Optional parameter values

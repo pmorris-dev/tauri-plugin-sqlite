@@ -203,6 +203,80 @@ async fn test_insert_after_abort_all_succeeds() {
 }
 
 // ============================================================================
+// ActiveInterruptibleTransactions timeout tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_expired_transaction_evicted_on_insert() {
+   let (db1, _temp1) = create_test_db("expire1.db").await;
+   let (db2, _temp2) = create_test_db("expire2.db").await;
+
+   for db in [&db1, &db2] {
+      db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)".into(), vec![])
+         .await
+         .unwrap();
+   }
+
+   // Use a 1ms timeout so the first transaction expires immediately
+   let state = ActiveInterruptibleTransactions::new(std::time::Duration::from_millis(1));
+
+   let tx1 = begin_transaction(&db1, "shared-key").await;
+   state.insert("shared-key".into(), tx1).await.unwrap();
+
+   // Sleep to ensure the transaction expires
+   tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+   // Second insert should succeed because the expired transaction is evicted
+   let tx2 = begin_transaction(&db2, "shared-key").await;
+   state.insert("shared-key".into(), tx2).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_remove_expired_transaction_returns_timed_out() {
+   let (db, _temp) = create_test_db("timeout.db").await;
+
+   db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)".into(), vec![])
+      .await
+      .unwrap();
+
+   let state = ActiveInterruptibleTransactions::new(std::time::Duration::from_millis(1));
+
+   let tx = begin_transaction(&db, "timeout.db").await;
+   let tx_id = tx.transaction_id().to_string();
+
+   state.insert("timeout.db".into(), tx).await.unwrap();
+
+   // Sleep to ensure the transaction expires
+   tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+   let err = expect_err(state.remove("timeout.db", &tx_id).await);
+   assert_eq!(err.error_code(), "TRANSACTION_TIMED_OUT");
+}
+
+#[tokio::test]
+async fn test_non_expired_transaction_not_evicted() {
+   let (db1, _temp1) = create_test_db("live1.db").await;
+   let (db2, _temp2) = create_test_db("live2.db").await;
+
+   for db in [&db1, &db2] {
+      db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)".into(), vec![])
+         .await
+         .unwrap();
+   }
+
+   // Use a long timeout so the first transaction does NOT expire
+   let state = ActiveInterruptibleTransactions::new(std::time::Duration::from_secs(300));
+
+   let tx1 = begin_transaction(&db1, "shared-key").await;
+   state.insert("shared-key".into(), tx1).await.unwrap();
+
+   // Second insert should still fail because the first transaction is alive
+   let tx2 = begin_transaction(&db2, "shared-key").await;
+   let err = state.insert("shared-key".into(), tx2).await.unwrap_err();
+   assert_eq!(err.error_code(), "TRANSACTION_ALREADY_ACTIVE");
+}
+
+// ============================================================================
 // ActiveRegularTransactions tests
 // ============================================================================
 

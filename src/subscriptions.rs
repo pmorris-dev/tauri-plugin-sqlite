@@ -161,6 +161,12 @@ impl ActiveSubscriptions {
       }
    }
 
+   /// Count active subscriptions for a specific database.
+   pub async fn count_for_db(&self, db_path: &str) -> usize {
+      let subs = self.0.read().await;
+      subs.values().filter(|sub| sub.db_path == db_path).count()
+   }
+
    /// Abort all subscriptions (for cleanup on app exit).
    pub async fn abort_all(&self) {
       let mut subs = self.0.write().await;

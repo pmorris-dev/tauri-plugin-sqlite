@@ -3707,7 +3707,7 @@ dependencies = [
 
 [[package]]
 name = "sqlx-sqlite-conn-mgr"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "serde",
  "sqlx",
@@ -3719,7 +3719,7 @@ dependencies = [
 
 [[package]]
 name = "sqlx-sqlite-observer"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "futures",
  "libsqlite3-sys",
@@ -3737,7 +3737,7 @@ dependencies = [
 
 [[package]]
 name = "sqlx-sqlite-toolkit"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "base64 0.22.1",
  "indexmap 2.13.0",
