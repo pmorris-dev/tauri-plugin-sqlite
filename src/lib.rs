@@ -134,6 +134,8 @@ pub struct MigrationEvent {
 pub struct Builder {
    /// Migrations registered per database path
    migrations: HashMap<String, Arc<Migrator>>,
+   /// Timeout for interruptible transactions. Defaults to 5 minutes.
+   transaction_timeout: Option<std::time::Duration>,
 }
 
 impl Builder {
@@ -141,6 +143,7 @@ impl Builder {
    pub fn new() -> Self {
       Self {
          migrations: HashMap::new(),
+         transaction_timeout: None,
       }
    }
 
@@ -170,9 +173,19 @@ impl Builder {
       self
    }
 
+   /// Set the timeout for interruptible transactions.
+   ///
+   /// If an interruptible transaction exceeds this duration, it will be automatically
+   /// rolled back on the next access attempt. Defaults to 5 minutes.
+   pub fn transaction_timeout(mut self, timeout: std::time::Duration) -> Self {
+      self.transaction_timeout = Some(timeout);
+      self
+   }
+
    /// Build the plugin with command registration and state management.
    pub fn build<R: Runtime>(self) -> tauri::plugin::TauriPlugin<R> {
       let migrations = Arc::new(self.migrations);
+      let transaction_timeout = self.transaction_timeout;
 
       PluginBuilder::<R>::new("sqlite")
          .invoke_handler(tauri::generate_handler![
@@ -197,7 +210,10 @@ impl Builder {
          .setup(move |app, _api| {
             app.manage(DbInstances::default());
             app.manage(MigrationStates::default());
-            app.manage(ActiveInterruptibleTransactions::default());
+            app.manage(match transaction_timeout {
+               Some(timeout) => ActiveInterruptibleTransactions::new(timeout),
+               None => ActiveInterruptibleTransactions::default(),
+            });
             app.manage(ActiveRegularTransactions::default());
             app.manage(subscriptions::ActiveSubscriptions::default());
 

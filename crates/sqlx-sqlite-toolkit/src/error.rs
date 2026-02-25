@@ -45,6 +45,10 @@ pub enum Error {
    #[error("invalid transaction token")]
    InvalidTransactionToken,
 
+   /// Transaction timed out (exceeded the configured timeout).
+   #[error("transaction timed out for database: {0}")]
+   TransactionTimedOut(String),
+
    /// Error from the observer (change notifications).
    #[cfg(feature = "observer")]
    #[error(transparent)]
@@ -115,6 +119,7 @@ impl Error {
          Error::TransactionAlreadyActive(_) => "TRANSACTION_ALREADY_ACTIVE".to_string(),
          Error::NoActiveTransaction(_) => "NO_ACTIVE_TRANSACTION".to_string(),
          Error::InvalidTransactionToken => "INVALID_TRANSACTION_TOKEN".to_string(),
+         Error::TransactionTimedOut(_) => "TRANSACTION_TIMED_OUT".to_string(),
          #[cfg(feature = "observer")]
          Error::Observer(_) => "OBSERVER_ERROR".to_string(),
          Error::Io(_) => "IO_ERROR".to_string(),
@@ -192,6 +197,13 @@ mod tests {
    fn test_error_code_io() {
       let err = Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
       assert_eq!(err.error_code(), "IO_ERROR");
+   }
+
+   #[test]
+   fn test_error_code_transaction_timed_out() {
+      let err = Error::TransactionTimedOut("test.db".into());
+      assert_eq!(err.error_code(), "TRANSACTION_TIMED_OUT");
+      assert!(err.to_string().contains("test.db"));
    }
 
    #[test]

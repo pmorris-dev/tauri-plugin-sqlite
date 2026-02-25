@@ -948,6 +948,41 @@ Working Tauri demo apps are in the [`examples/`](examples) directory:
 See the [toolkit crate README](crates/sqlx-sqlite-toolkit/README.md#examples)
 for setup instructions.
 
+## Security Considerations
+
+### Cross-Window Shared State
+
+Database instances are shared across all webviews/windows within the same Tauri
+application. A database loaded in one window is accessible from any other window
+without calling `load()` again. Writes from one window are immediately visible
+to reads in another, and closing a database affects all windows.
+
+### Resource Limits
+
+The plugin enforces several resource limits to prevent denial-of-service from
+untrusted or buggy frontend code:
+
+   * **Database count**: Maximum 50 concurrently loaded databases (configurable
+     via `Builder::max_databases()`)
+   * **Interruptible transaction timeout**: Transactions that exceed the
+     default (5 minutes) are automatically rolled back on the next access
+     attempt (configurable via `Builder::transaction_timeout()`)
+   * **Observer channel capacity**: Capped at 10,000 (default 256)
+   * **Observed tables**: Maximum 100 tables per `observe()` call
+   * **Subscriptions**: Maximum 100 active subscriptions per database
+
+### Unbounded Result Sets
+
+`fetchAll()` returns the entire result set in a single response with no built-in
+size limit. For large or unbounded queries, prefer `fetchPage()` with keyset
+pagination to keep memory usage bounded on both the Rust and TypeScript sides.
+
+### Path Validation
+
+Database paths are validated to prevent directory traversal. Absolute paths,
+`..` segments, and null bytes are rejected. All paths are resolved relative to
+the app config directory.
+
 ## Development
 
 This project follows
