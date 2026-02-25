@@ -39,6 +39,10 @@ pub enum Error {
    #[error("observation not enabled for database: {0}")]
    ObservationNotEnabled(String),
 
+   /// Too many databases loaded simultaneously.
+   #[error("cannot load more than {0} databases")]
+   TooManyDatabases(usize),
+
    /// Invalid configuration parameter.
    #[error("invalid configuration: {0}")]
    InvalidConfig(String),
@@ -78,6 +82,7 @@ impl Error {
          Error::PathTraversal(_) => "PATH_TRAVERSAL".to_string(),
          Error::DatabaseNotLoaded(_) => "DATABASE_NOT_LOADED".to_string(),
          Error::ObservationNotEnabled(_) => "OBSERVATION_NOT_ENABLED".to_string(),
+         Error::TooManyDatabases(_) => "TOO_MANY_DATABASES".to_string(),
          Error::InvalidConfig(_) => "INVALID_CONFIG".to_string(),
          Error::Other(_) => "ERROR".to_string(),
       }

@@ -112,7 +112,7 @@ pub async fn load<R: Runtime>(
    // Wait for migrations to complete if registered for this database
    await_migrations(&migration_states, &db).await?;
 
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    // Return cached if db was already loaded
    if instances.contains_key(&db) {
@@ -121,7 +121,14 @@ pub async fn load<R: Runtime>(
 
    drop(instances); // Release read lock before acquiring write lock
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
+
+   // Check database count limit before creating a new connection.
+   // This check is before entry() to avoid borrow conflicts, and the write lock
+   // prevents races between the len() check and the insert.
+   if !instances.contains_key(&db) && instances.len() >= db_instances.max {
+      return Err(Error::TooManyDatabases(db_instances.max));
+   }
 
    // Use entry API to atomically check and insert, avoiding race conditions
    // where two callers could both create wrappers
@@ -187,7 +194,7 @@ pub async fn execute(
    values: Vec<JsonValue>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<(u64, i64)> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -214,7 +221,7 @@ pub async fn execute_transaction(
    statements: Vec<Statement>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<Vec<WriteQueryResult>> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -292,7 +299,7 @@ pub async fn fetch_all(
    values: Vec<JsonValue>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<Vec<IndexMap<String, JsonValue>>> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -319,7 +326,7 @@ pub async fn fetch_one(
    values: Vec<JsonValue>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<Option<IndexMap<String, JsonValue>>> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -357,7 +364,7 @@ pub async fn fetch_page(
       ));
    }
 
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -394,7 +401,7 @@ pub async fn close(
 ) -> Result<bool> {
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    if let Some(wrapper) = instances.remove(&db) {
       wrapper.close().await?;
@@ -415,7 +422,7 @@ pub async fn close_all(
 ) -> Result<()> {
    active_subs.abort_all().await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    // Collect all wrappers to close
    let wrappers: Vec<DatabaseWrapper> = instances.drain().map(|(_, v)| v).collect();
@@ -447,7 +454,7 @@ pub async fn remove(
 ) -> Result<bool> {
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    if let Some(wrapper) = instances.remove(&db) {
       wrapper.remove().await?;
@@ -489,7 +496,7 @@ pub async fn begin_interruptible_transaction(
    initial_statements: Vec<Statement>,
    attached: Option<Vec<AttachedDatabaseSpec>>,
 ) -> Result<TransactionToken> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -641,7 +648,7 @@ pub async fn observe(
    // enable_observation() drops the old broker
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    let wrapper = instances
       .get_mut(&db)
@@ -683,7 +690,7 @@ pub async fn subscribe(
    tables: Vec<String>,
    on_event: Channel<TableChangePayload>,
 ) -> Result<String> {
-   let instances = db_instances.0.read().await;
+   let instances = db_instances.inner.read().await;
 
    let wrapper = instances
       .get(&db)
@@ -747,7 +754,7 @@ pub async fn unobserve(
    // Abort all subscriptions for this database first
    active_subs.remove_for_db(&db).await;
 
-   let mut instances = db_instances.0.write().await;
+   let mut instances = db_instances.inner.write().await;
 
    let wrapper = instances
       .get_mut(&db)

@@ -22,12 +22,38 @@ pub use sqlx_sqlite_toolkit::{
    TransactionExecutionBuilder, WriteQueryResult,
 };
 
+/// Default maximum number of concurrently loaded databases.
+const DEFAULT_MAX_DATABASES: usize = 50;
+
 /// Database instances managed by the plugin.
 ///
 /// This struct maintains a thread-safe map of database paths to their corresponding
-/// connection wrappers.
-#[derive(Clone, Default)]
-pub struct DbInstances(pub Arc<RwLock<HashMap<String, DatabaseWrapper>>>);
+/// connection wrappers, with a configurable upper limit on how many databases can be
+/// loaded simultaneously.
+#[derive(Clone)]
+pub struct DbInstances {
+   pub(crate) inner: Arc<RwLock<HashMap<String, DatabaseWrapper>>>,
+   pub(crate) max: usize,
+}
+
+impl Default for DbInstances {
+   fn default() -> Self {
+      Self {
+         inner: Arc::new(RwLock::new(HashMap::new())),
+         max: DEFAULT_MAX_DATABASES,
+      }
+   }
+}
+
+impl DbInstances {
+   /// Create a new instance with the given maximum database count.
+   pub fn new(max: usize) -> Self {
+      Self {
+         inner: Arc::new(RwLock::new(HashMap::new())),
+         max,
+      }
+   }
+}
 
 /// Migration status for a database.
 #[derive(Debug, Clone)]
@@ -136,6 +162,8 @@ pub struct Builder {
    migrations: HashMap<String, Arc<Migrator>>,
    /// Timeout for interruptible transactions. Defaults to 5 minutes.
    transaction_timeout: Option<std::time::Duration>,
+   /// Maximum number of concurrently loaded databases. Defaults to 50.
+   max_databases: Option<usize>,
 }
 
 impl Builder {
@@ -144,6 +172,7 @@ impl Builder {
       Self {
          migrations: HashMap::new(),
          transaction_timeout: None,
+         max_databases: None,
       }
    }
 
@@ -182,10 +211,20 @@ impl Builder {
       self
    }
 
+   /// Set the maximum number of databases that can be loaded simultaneously.
+   ///
+   /// Prevents unbounded memory growth from connection pool proliferation.
+   /// Defaults to 50.
+   pub fn max_databases(mut self, max: usize) -> Self {
+      self.max_databases = Some(max);
+      self
+   }
+
    /// Build the plugin with command registration and state management.
    pub fn build<R: Runtime>(self) -> tauri::plugin::TauriPlugin<R> {
       let migrations = Arc::new(self.migrations);
       let transaction_timeout = self.transaction_timeout;
+      let max_databases = self.max_databases;
 
       PluginBuilder::<R>::new("sqlite")
          .invoke_handler(tauri::generate_handler![
@@ -208,7 +247,10 @@ impl Builder {
             commands::unobserve,
          ])
          .setup(move |app, _api| {
-            app.manage(DbInstances::default());
+            app.manage(match max_databases {
+               Some(max) => DbInstances::new(max),
+               None => DbInstances::default(),
+            });
             app.manage(MigrationStates::default());
             app.manage(match transaction_timeout {
                Some(timeout) => ActiveInterruptibleTransactions::new(timeout),
@@ -286,7 +328,7 @@ impl Builder {
 
                         // Close databases (each wrapper's close() disables its own
                         // observer at the crate level, unregistering SQLite hooks)
-                        let mut guard = instances_clone.0.write().await;
+                        let mut guard = instances_clone.inner.write().await;
                         let wrappers: Vec<DatabaseWrapper> =
                            guard.drain().map(|(_, v)| v).collect();
 
@@ -329,7 +371,7 @@ impl Builder {
                   // ExitRequested should have already closed all databases
                   // This is just a safety check
                   let instances = app.state::<DbInstances>();
-                  match instances.0.try_read() {
+                  match instances.inner.try_read() {
                      Ok(guard) => {
                         if !guard.is_empty() {
                            warn!(
