@@ -290,7 +290,10 @@ pub async fn execute_transaction(
    }
 }
 
-/// Execute a SELECT query returning all matching rows
+/// Execute a SELECT query returning all matching rows.
+///
+/// Returns the entire result set in a single response. For large or unbounded queries,
+/// prefer `fetch_page` with keyset pagination to keep memory usage bounded.
 #[tauri::command]
 pub async fn fetch_all(
    db_instances: State<'_, DbInstances>,
