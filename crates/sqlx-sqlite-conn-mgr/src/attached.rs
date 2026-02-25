@@ -70,7 +70,7 @@ impl AttachedReadConnection {
    /// attached databases may persist when the connection is returned to the pool.
    pub async fn detach_all(mut self) -> Result<()> {
       for schema_name in &self.schema_names {
-         let detach_sql = format!("DETACH DATABASE {}", schema_name);
+         let detach_sql = format!("DETACH DATABASE \"{}\"", schema_name);
          sqlx::query(&detach_sql).execute(&mut *self.conn).await?;
       }
       Ok(())
@@ -140,7 +140,7 @@ impl AttachedWriteGuard {
    /// attached databases may persist when the connection is returned to the pool.
    pub async fn detach_all(mut self) -> Result<()> {
       for schema_name in &self.schema_names {
-         let detach_sql = format!("DETACH DATABASE {}", schema_name);
+         let detach_sql = format!("DETACH DATABASE \"{}\"", schema_name);
          sqlx::query(&detach_sql).execute(&mut *self.writer).await?;
       }
       Ok(())
@@ -252,7 +252,10 @@ pub async fn acquire_reader_with_attached(
       // Schema name is validated above to contain only safe identifier characters
       let path = spec.database.path_str();
       let escaped_path = path.replace("'", "''");
-      let attach_sql = format!("ATTACH DATABASE '{}' AS {}", escaped_path, spec.schema_name);
+      let attach_sql = format!(
+         "ATTACH DATABASE '{}' AS \"{}\"",
+         escaped_path, spec.schema_name
+      );
       sqlx::query(&attach_sql).execute(&mut *conn).await?;
 
       schema_names.push(spec.schema_name);
@@ -349,7 +352,10 @@ pub async fn acquire_writer_with_attached(
    for spec in specs {
       let path = spec.database.path_str();
       let escaped_path = path.replace("'", "''");
-      let attach_sql = format!("ATTACH DATABASE '{}' AS {}", escaped_path, spec.schema_name);
+      let attach_sql = format!(
+         "ATTACH DATABASE '{}' AS \"{}\"",
+         escaped_path, spec.schema_name
+      );
       sqlx::query(&attach_sql).execute(&mut *writer).await?;
 
       schema_names.push(spec.schema_name);

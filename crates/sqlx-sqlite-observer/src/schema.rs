@@ -20,11 +20,11 @@ pub async fn query_table_info(
    // Check if table exists and get WITHOUT ROWID status
    let without_rowid = is_without_rowid(conn, table_name).await?;
 
-   // Get primary key columns using PRAGMA table_info
+   // Get primary key columns using pragma_table_info()
    let pk_columns = query_pk_columns(conn, table_name).await?;
 
    // Determine if table exists:
-   // - If pk_columns is None, PRAGMA table_info returned no rows (table doesn't exist)
+   // - If pk_columns is None, pragma_table_info returned no rows (table doesn't exist)
    // - If without_rowid is true, the table must exist (we found it in sqlite_master)
    // - A table with no explicit PK returns Some([]), not None
    if pk_columns.is_none() && !without_rowid {
@@ -78,15 +78,20 @@ fn has_without_rowid_clause(create_sql: &str) -> bool {
 /// Returns column indices in the order they appear in the PRIMARY KEY definition.
 /// For composite primary keys, the `pk` column in PRAGMA table_info indicates
 /// the position (1-indexed) within the PK.
+///
+/// Uses the `pragma_table_info()` table-valued function (available since SQLite
+/// 3.16.0) so the table name can be bound as a parameter instead of interpolated
+/// into the SQL string.
 async fn query_pk_columns(
    conn: &mut SqliteConnection,
    table_name: &str,
 ) -> crate::Result<Option<Vec<usize>>> {
-   // PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
+   // pragma_table_info returns: cid, name, type, notnull, dflt_value, pk
    // pk is 0 for non-PK columns, or 1-indexed position for PK columns
-   let pragma = format!("PRAGMA table_info({})", quote_identifier(table_name));
+   let sql = "SELECT cid, name, type, \"notnull\", dflt_value, pk FROM pragma_table_info(?1)";
 
-   let rows = sqlx::query(&pragma)
+   let rows = sqlx::query(sql)
+      .bind(table_name)
       .fetch_all(&mut *conn)
       .await
       .map_err(crate::Error::Sqlx)?;
@@ -116,22 +121,9 @@ async fn query_pk_columns(
    Ok(Some(pk_columns.into_iter().map(|(cid, _)| cid).collect()))
 }
 
-/// Quotes a SQLite identifier to prevent SQL injection.
-fn quote_identifier(name: &str) -> String {
-   // Double any existing double quotes and wrap in double quotes
-   format!("\"{}\"", name.replace('"', "\"\""))
-}
-
 #[cfg(test)]
 mod tests {
    use super::*;
-
-   #[test]
-   fn test_quote_identifier() {
-      assert_eq!(quote_identifier("users"), "\"users\"");
-      assert_eq!(quote_identifier("my table"), "\"my table\"");
-      assert_eq!(quote_identifier("foo\"bar"), "\"foo\"\"bar\"");
-   }
 
    #[test]
    fn test_has_without_rowid_clause() {
