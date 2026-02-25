@@ -83,12 +83,18 @@ fn validate_and_resolve(path: &str, base: &Path) -> Result<PathBuf, Error> {
    let canonical_resolved = if joined.exists() {
       joined.canonicalize()
    } else {
-      // Canonicalize the parent and re-append the file name
-      joined
+      // Ensure intermediate directories exist so that canonicalize can resolve the
+      // parent. This matches the caller's expectation that nested relative paths like
+      // "subdir/mydb.db" work without pre-creating "subdir/".
+      let parent = joined
          .parent()
-         .ok_or_else(|| Error::InvalidPath("path has no parent".to_string()))?
+         .ok_or_else(|| Error::InvalidPath("path has no parent".to_string()))?;
+
+      create_dir_all(parent)?;
+
+      parent
          .canonicalize()
-         .map(|parent| parent.join(joined.file_name().unwrap_or_default()))
+         .map(|p| p.join(joined.file_name().unwrap_or_default()))
    }
    .map_err(|e| Error::InvalidPath(format!("cannot canonicalize path: {e}")))?;
 
@@ -135,10 +141,18 @@ mod tests {
    #[test]
    fn test_subdirectory_path() {
       let base = make_temp_base();
-      // Create the subdirectory so canonicalize can resolve it
-      fs::create_dir_all(base.join("subdir")).unwrap();
+      // Intermediate directories are auto-created — no manual setup needed
       let result = validate_and_resolve("subdir/mydb.db", &base).unwrap();
       assert_eq!(result, base.join("subdir/mydb.db"));
+      assert!(base.join("subdir").is_dir());
+   }
+
+   #[test]
+   fn test_nested_subdirectory_path() {
+      let base = make_temp_base();
+      let result = validate_and_resolve("a/b/c/mydb.db", &base).unwrap();
+      assert_eq!(result, base.join("a/b/c/mydb.db"));
+      assert!(base.join("a/b/c").is_dir());
    }
 
    #[test]
