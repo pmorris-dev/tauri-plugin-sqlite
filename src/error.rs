@@ -27,6 +27,10 @@ pub enum Error {
    #[error("invalid database path: {0}")]
    InvalidPath(String),
 
+   /// Path traversal attempt detected.
+   #[error("path traversal not allowed: {0}")]
+   PathTraversal(String),
+
    /// Attempted to access a database that hasn't been loaded.
    #[error("database {0} not loaded")]
    DatabaseNotLoaded(String),
@@ -67,6 +71,7 @@ impl Error {
          Error::Toolkit(e) => e.error_code(),
          Error::Migration(_) => "MIGRATION_ERROR".to_string(),
          Error::InvalidPath(_) => "INVALID_PATH".to_string(),
+         Error::PathTraversal(_) => "PATH_TRAVERSAL".to_string(),
          Error::DatabaseNotLoaded(_) => "DATABASE_NOT_LOADED".to_string(),
          Error::ObservationNotEnabled(_) => "OBSERVATION_NOT_ENABLED".to_string(),
          Error::Other(_) => "ERROR".to_string(),

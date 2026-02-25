@@ -473,17 +473,13 @@ fn emit_migration_event<R: Runtime>(
    }
 }
 
-/// Resolve database path for migrations (similar to wrapper but accessible at init).
+/// Resolve database path for migrations.
+///
+/// Delegates to `resolve::resolve_database_path` to ensure consistent path validation
+/// across all entry points.
 fn resolve_migration_path<R: Runtime>(
    path: &str,
    app: &tauri::AppHandle<R>,
 ) -> Result<std::path::PathBuf> {
-   let app_path = app
-      .path()
-      .app_config_dir()
-      .map_err(|_| Error::InvalidPath("No app config path found".to_string()))?;
-
-   std::fs::create_dir_all(&app_path)?;
-
-   Ok(app_path.join(path))
+   crate::resolve::resolve_database_path(path, app)
 }
